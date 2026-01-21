@@ -1,56 +1,84 @@
-import mlflow
-import mlflow.sklearn
-from sklearn.datasets import load_wine
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn.datasets import load_breast_cancer
+import pandas as pd
+import mlflow
 import dagshub
 dagshub.init(repo_owner='akhil6july2003', repo_name='MLOps_Experiment_Tracking_Via_MLFlow', mlflow=True)
 
 
 mlflow.set_tracking_uri("https://dagshub.com/akhil6july2003/MLOps_Experiment_Tracking_Via_MLFlow.mlflow")
 
-wine = load_wine()
-X = wine.data
-y = wine.target
+# Load the Breast Cancer dataset
+data = load_breast_cancer()
+x = pd.DataFrame(data.data, columns=data.feature_names)
+y = pd.Series(data.target, name = 'target')
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=43)
 
-# Define the parameters for RF model
-max_depth = 7
-n_estimators = 15
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=43)
 
-# mlflow.autolog()
-mlflow.set_experiment('MLOps_Exp1')
+rf = RandomForestClassifier(random_state=43)
+
+# Defining the parameter grid for GridSeachCV
+
+param_grid = {
+    'n_estimators' : [10, 50, 100],
+    'max_depth' : [None, 10, 20, 30]
+}
+
+# Applying GridSearchCV
+grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=5, n_jobs=1, verbose=2)
+
+# Run without MLFlow
+# grid_search.fit(X_train, y_train)
+
+# best_params = grid_search.best_params_
+# best_score = grid_search.best_score_
+
+# print(best_params)
+# print(best_score)
+
+
+# Using Remote MLFlow Tracking
+mlflow.set_experiment("Breast_Cancer_RF")
 
 with mlflow.start_run():
-    rf = RandomForestClassifier(max_depth=max_depth, n_estimators=n_estimators, random_state=43)
-    rf.fit(X_train, y_train)
 
-    y_pred = rf.predict(X_test)
+    grid_search.fit(X_train, y_train)
 
-    accuracy = accuracy_score(y_test, y_pred)
+    # logging all the child runs
+    for i in range(len(grid_search.cv_results_['params'])):
 
-    mlflow.log_metric("accuracy", accuracy)
+        with mlflow.start_run(nested=True) as child:
+            mlflow.log_params(grid_search.cv_results_['params'][i])
+            mlflow.log_metric("accuracy", grid_search.cv_results_["mean_test_score"][i])
 
-    mlflow.log_param("max_depth", max_depth)
-    mlflow.log_param("n_estimators", n_estimators)
+    best_params = grid_search.best_params_
+    best_score = grid_search.best_score_
 
-    # Creating a confusion matrix
-    cm = confusion_matrix(y_test, y_pred)
-    plt.figure(figsize=(6, 6))
-    sns.heatmap(cm, annot=True , fmt='d', cmap='Blues', xticklabels=wine.target_names, yticklabels=wine.target_names)
-    plt.ylabel('Actual')
-    plt.xlabel('Predicted')
-    plt.title('Confusion Matrix')
+    mlflow.log_params(best_params)
 
-    plt.savefig("Confusion_Matrix.png")
+    mlflow.log_metric("accuracy", best_score)
 
-    mlflow.log_artifact("Confusion_Matrix.png")
+    # log training data
+    train_df = X_train.copy()
+    train_df['target'] = y_train
+
+    train_df = mlflow.data.from_pandas(train_df)
+    mlflow.log_input(train_df, "training")
+
+
+    test_df = X_test.copy()
+    test_df['target'] = y_test
+
+    test_df = mlflow.data.from_pandas(test_df)
+    mlflow.log_input(test_df, "testing")
+
+    # log source file
     mlflow.log_artifact(__file__)
 
-    mlflow.set_tags({"Author" : "Akhil", "Project" : "Wine Classification"})
+    # log best model 
+    mlflow.sklearn.log_model(grid_search.best_estimator_, "random_forest")
 
-    mlflow.sklearn.log_model(rf, "Random_Forest_Model")
+    # Set tags
+    mlflow.set_tag("Author", "AKR")
