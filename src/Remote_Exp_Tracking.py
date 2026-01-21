@@ -22,9 +22,10 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_
 max_depth = 7
 n_estimators = 15
 
-# mlflow.set_experiment('MLOps_Exp1')
+# mlflow.autolog()
+mlflow.set_experiment('MLOps_Exp1')
 
-with mlflow.start_run(experiment_id=1):
+with mlflow.start_run():
     rf = RandomForestClassifier(max_depth=max_depth, n_estimators=n_estimators, random_state=43)
     rf.fit(X_train, y_train)
 
